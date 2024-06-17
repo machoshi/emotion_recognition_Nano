@@ -21,7 +21,7 @@ parser.add_argument('--batch-size', type=int, default=50, metavar='N',
                     help='input batch size for training (default: 50)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=5, metavar='N',
                     help='number of epochs to train (default: 100)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -75,6 +75,7 @@ util.print_model_parameters(model)
 util.replace_layers(model) #更换模型为剪枝模型
 
 util.print_model_parameters(model)
+# print(model)
 model.to(device)
 
 # NOTE : `weight_decay` term denotes L2 regularization loss term
@@ -137,9 +138,10 @@ print("--- Before pruning ---")
 util.print_nonzeros(model)
 
 # Pruning
-# model.prune_by_std(args.sensitivity)
-util.prune_by_std(model,args.sensitivity)
+model.prune_by_std(args.sensitivity)
+# util.prune_by_std(model,args.sensitivity)
 accuracy = test()
+util.froze_layers(model)
 util.log(args.log, f"accuracy_after_pruning {accuracy}")
 print("--- After pruning ---")
 util.print_nonzeros(model)
@@ -154,3 +156,7 @@ util.log(args.log, f"accuracy_after_retraining {accuracy}")
 
 print("--- After Retraining ---")
 util.print_nonzeros(model)
+
+util.replace_layers_sparse(model)
+accuracy = test()
+util.log(args.log, f"accuracy_after_deploy {accuracy}")

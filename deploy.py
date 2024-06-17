@@ -5,100 +5,114 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import TensorDataset, DataLoader
+from torchvision import transforms
+from Xception import MiniXception
+from process import load_fer2013
+from sklearn.model_selection import train_test_split
 import torch.optim as optim
 from torchvision import datasets, transforms
 from tqdm import tqdm
 import util
-from net.SparseLayer import SparseLinear, SparseConv2d
+import logging
 
-def load_LeNet_5(model_path):
-    model = torch.load(model_path)
-    conv_modules = []
-    fc_modules = []
-    # util.print_model_module(model)
-    # util.print_model_parameters(model)
-    for name, module in model.named_modules():
-        if 'LeNet_5' in name:
-            continue #忽略本身那一层
-        if 'fc' in name:
-            in_features = module.in_features
-            out_features = module.out_features
-            bias = module.bias
-            new_linear = SparseLinear(in_features,out_features,bias)
-            new_linear.load_weight(module.weight,module.bias)
-            fc_modules.append(new_linear)
-        if 'conv' in name:
-            in_channels = module.in_features
-            out_channels = module.out_features
-            kernel_size = module.kernel_size
-            stride = module.stride
-            padding = module.padding
-            bias = module.bias 
-            new_conv = SparseConv2d(in_channels,out_channels,kernel_size,stride=stride,padding=padding,bias=bias)
-            new_conv.load_weight(module.weight,module.bias)
-            conv_modules.append(new_conv)
-    return Sparse_LeNet_5(conv_modules,fc_modules)
-    
-class Sparse_LeNet_5(nn.Module):
-    def __init__(self,conv_modules,fc_modules):
-        super(Sparse_LeNet_5,self).__init__()
-        self.conv1 = conv_modules[0]
-        self.conv2 = conv_modules[1]
-        self.fc1 = fc_modules[0]
-        self.fc2 = fc_modules[1]
-        self.fc3 = fc_modules[2]
+# parameters
+batch_size = 32
+num_epochs = 10
+input_shape = (1, 48, 48)
+validation_split = .2
+num_classes = 7
+patience = 50
 
-    def forward(self,x):
-        # Conv1
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, kernel_size=(2, 2), stride=2)
-
-        # Conv2
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, kernel_size=(2, 2), stride=2)
-
-        # Conv3
-
-        # Fully-connected
-        x = x.view(-1, 16*5*5)
-
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-        x = self.fc3(x)
-        x = F.log_softmax(x, dim=1)
-
-        return x
- 
+logging.basicConfig(filename='logs/training.log', level=logging.INFO)
+# Data Augmentation
+data_transforms = transforms.Compose([
+    transforms.RandomRotation(10),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomResizedCrop(input_shape[1:3], scale=(0.8, 1.2), ratio=(0.75, 1.333)),
+])
 
 
+# model parameters/compilation
+device = 'cuda'
+# model = MiniXception(input_shape, num_classes).cuda()
+# print(model)
+# util.replace_layers(model)
+# print(model)
+model = torch.load("saves/deploy_miniModel.ptmodel")
 
-model_path = 'saves'
-model_name = 'model_after_retraining.ptmodel'
-model_path = os.path.join(model_path,model_name)
+# util.print_model_module(model)
+# util.replace_layers_sparse(model)
+# util.print_model_parameters(model)
+# util.replace_layers(model)
+# util.print_model_parameters(model)
+model.to(device)
 
-# util.test(model, torch.cuda.is_available())
-print("Start loading weight")
-# sparse_model = load_LeNet_5(model_path)
-sparse_model = torch.load(model_path)
-util.test(sparse_model, torch.cuda.is_available())
-util.replace_layers_sparse(sparse_model) #将导入的剪枝模型替换成稀疏模型
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001,weight_decay=0.0001)
+criterion = nn.CrossEntropyLoss()
+scheduler = ReduceLROnPlateau(optimizer, 'min', patience=int(patience / 4), verbose=True)
+initial_optimizer_state_dict = optimizer.state_dict()
 
-# util.print_model_parameters(sparse_model)
-util.print_model_module(sparse_model)
-torch.save(sparse_model,'saves/deploy_model.ptmodel')
-util.test(sparse_model, torch.cuda.is_available())
+
+# loading dataset
+faces, emotions = load_fer2013()
+# faces = preprocess_input(faces)
+xtrain, xtest, ytrain, ytest = train_test_split(faces, emotions, test_size=0.2, shuffle=True)
+train_data = TensorDataset(xtrain, ytrain)
+test_data = TensorDataset(xtest, ytest)
+
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4)
+test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4)
+
+def test():
+    model.eval()
+    with torch.no_grad():
+        total_loss = 0
+        correct = 0
+        for data, target in test_loader:
+            data, target = data.to(device), torch.argmax(target.int(), dim=1).to(device)
+            output = model(data)
+            total_loss += criterion(output, target).item()
+            prediction = output.argmax(dim=1, keepdim=True)
+            correct += prediction.eq(target.view_as(prediction)).sum().item()
+        
+    # scheduler
+    scheduler.step(total_loss)
+    acc = 100.*correct/len(test_loader.dataset)
+    print(f'Test set: Average loss:{total_loss},Accuracy:{acc}')
+    return acc
+
+test()
+
+
+
+# model_path = 'saves'
+# model_name = 'model_after_retraining.ptmodel'
+# model_path = os.path.join(model_path,model_name)
+
+# # util.test(model, torch.cuda.is_available())
+# print("Start loading weight")
+# # sparse_model = load_LeNet_5(model_path)
+# sparse_model = torch.load(model_path)
+# util.test(sparse_model, torch.cuda.is_available())
+# util.replace_layers_sparse(sparse_model) #将导入的剪枝模型替换成稀疏模型
+
+# # util.print_model_parameters(sparse_model)
+# util.print_model_module(sparse_model)
+# torch.save(sparse_model,'saves/deploy_model.ptmodel')
+# util.test(sparse_model, torch.cuda.is_available())
 # util.print_model_parameters(model)
 
 
 # import torch
 # import torch.nn as nn
-# import torch.nn.functional as F
+# # import torch.nn.functional as F
 # import math
-
+# # model = torch.load("saves/miniModel_after_retraining.ptmodel")
+# # util.replace_layers_sparse(model)
+# # torch.save(model,f"saves/deploy_miniModel.ptmodel")
+# model = torch.load("saves/deploy_miniModel.ptmodel")
 
 # input = torch.randn(5, 5)
 # kernel = torch.randn(3, 3)
@@ -108,14 +122,14 @@ util.test(sparse_model, torch.cuda.is_available())
 # bias = torch.randn(2)
 
 # # 用矩阵运算实现二维卷积 input flatten版
-# def matrix_multiplication_for_conv2d_flatten(input, kernel,bias = 0, stride=1, padding=0):
+# def matrix_multiplication_for_conv2d_flatten(input, kernel,bias = 0, stride=1, padding=0,groups = 2):
     
 #     batch,_,input_h, input_w = input.shape
 #     channel_out,channel_in,kernel_h, kernel_w = kernel.shape
 
 #     print(input.shape)
 
-#     input = F.unfold(input,kernel_size= (kernel_h,kernel_w),padding=padding,stride=stride)
+#     input = F.unfold(input,kernel_size= (kernel_h,kernel_w),padding=padding,stride=stride,groups = groups)
 
 #     input = input.permute(1,0,2) #输入张量变换以进行张平，使得batchsize在列数据上
 #     print(input.shape)

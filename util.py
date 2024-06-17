@@ -24,9 +24,10 @@ def prune_by_std(model,s = 0.25):
                 module.prune(threshold)
 
 def froze_layers(model):
-    for name,param in list(model.named_parameters()): #冻结除了卷积层和全连接层之外的层
-        if 'fc' not in name and 'conv' not in name:
-            param.requires_grad=False
+    for name, module in model.named_modules(): #冻结除了卷积层和全连接层之外的层
+        if isinstance(module,Module):
+            if not (isinstance(module,MaskedConv2d) or isinstance(module,MaskedLinear)):
+                module.requires_grad=False
 
 
 def replace_layers(model): #将model替换成剪枝层
@@ -38,7 +39,11 @@ def replace_layers(model): #将model替换成剪枝层
             stride = module.stride
             padding = module.padding
             bias = module.bias 
-            new_conv_layer = MaskedConv2d(in_channels,out_channels,kernel_size,stride=stride,padding=padding,bias=bias)
+            groups = module.groups
+            if groups!=1: continue
+            # print(in_channels,out_channels,kernel_size,module.weight.data.shape,groups)
+            # print(module.state_dict()['weight'].shape)
+            new_conv_layer = MaskedConv2d(in_channels,out_channels,kernel_size,stride=stride,padding=padding,groups=groups,bias=bias)
             new_conv_layer.load_weight(module.weight,bias)
             setattr(model,name,new_conv_layer)
         elif isinstance(module,nn.Linear):
@@ -52,7 +57,8 @@ def replace_layers(model): #将model替换成剪枝层
             replace_layers(module)
 
 def replace_layers_sparse(model): #将model的剪枝层替换成sparse
-    for name,module in model.named_children():
+    sparse_model = model
+    for name,module in sparse_model.named_children():
         if isinstance(module,MaskedConv2d):
             in_channels = module.in_channels
             out_channels = module.out_channels
@@ -61,18 +67,22 @@ def replace_layers_sparse(model): #将model的剪枝层替换成sparse
             padding = module.padding
             # print(type(padding))
             bias = module.bias 
+            # print(in_channels,out_channels,kernel_size)
+            # print("replacing",name,module.weight.data.shape)
             new_conv_layer = SparseConv2d(in_channels,out_channels,kernel_size,stride=stride,padding=padding,bias=bias)
             new_conv_layer.load_weight(module.weight,bias)
-            setattr(model,name,new_conv_layer)
+            setattr(sparse_model,name,new_conv_layer)
         elif isinstance(module,MaskedLinear):
             in_features = module.in_features
             out_features = module.out_features
             bias = module.bias
             new_linear_layer = SparseLinear(in_features,out_features,bias)
             new_linear_layer.load_weight(module.weight,bias)
-            setattr(model,name,new_linear_layer)
+            setattr(sparse_model,name,new_linear_layer)
         elif len(list(module.children()))>0:
-            replace_layers(module)
+            replace_layers_sparse(module)
+        
+    return sparse_model
 
 def print_model(model):
     for name, module in model.named_modules():
@@ -136,3 +146,5 @@ def test(model, use_cuda=True):
         accuracy = 100. * correct / len(test_loader.dataset)
         print(f'Test set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({accuracy:.2f}%)')
     return accuracy
+
+

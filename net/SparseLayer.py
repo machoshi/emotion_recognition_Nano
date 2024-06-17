@@ -183,7 +183,7 @@ class SparseConv2d(Module):
         self.kernel_size= kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
         self.stride = stride
         self.padding = padding
-        print(self.padding)
+        # print(self.padding)
         kernel_h,kernel_w = self.kernel_size
 
         kernel = torch.Tensor(out_channels, in_channels, *self.kernel_size)

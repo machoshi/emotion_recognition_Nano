@@ -143,14 +143,15 @@ class MaskedConv2d(Module):
             It has the same shape as weight (out_features x in_features)
 
     """
-    def __init__(self, in_channels, out_channels, kernel_size,stride = 1,padding = 0,bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size,stride = 1,padding = 0,groups=1,bias=True):
         super(MaskedConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size= kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
         self.stride = stride
         self.padding = padding
-        self.weight = Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        self.weight = Parameter(torch.Tensor(out_channels, in_channels//groups, *self.kernel_size))
+        self.groups = groups
 
         # Initialize the mask with 1
         self.mask = Parameter(torch.ones_like(self.weight), requires_grad=False)
@@ -168,12 +169,15 @@ class MaskedConv2d(Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def load_weight(self,weight,bias):
+        
         self.weight.data = weight.data
+        # self.mask.data = torch.ones_like(weight.data)
+        # print(weight.shape,self.weight.shape)
         if bias is not None:
             self.bias.data = bias.data
 
     def forward(self, input):
-        return F.conv2d(input,self.weight*self.mask,self.bias,stride=self.stride,padding=self.padding)
+        return F.conv2d(input,self.weight*self.mask,self.bias,stride=self.stride,padding=self.padding,groups=self.groups)
 
     def __repr__(self):
         return self.__class__.__name__ + '(' \
