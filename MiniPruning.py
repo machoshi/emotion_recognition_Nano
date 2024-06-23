@@ -14,18 +14,19 @@ from sklearn.model_selection import train_test_split
 import torch.optim as optim
 from torchvision import datasets, transforms
 from tqdm import tqdm
+from resnet import ResNet18
 import util
 import logging
 
 # parameters
 batch_size = 32
-num_epochs = 10
+num_epochs = 20
 input_shape = (1, 48, 48)
 validation_split = .2
 num_classes = 7
 patience = 50
 
-logging.basicConfig(filename='logs/training.log', level=logging.INFO)
+logging.basicConfig(filename='logs/PruningminiRes.log', level=logging.INFO)
 # Data Augmentation
 data_transforms = transforms.Compose([
     transforms.RandomRotation(10),
@@ -36,7 +37,11 @@ data_transforms = transforms.Compose([
 
 # model parameters/compilation
 device = 'cuda'
-model = MiniXception(input_shape, num_classes).cuda()
+# model = MiniXception(input_shape, num_classes)
+model = ResNet18(num_classes=num_classes)
+model.load_state_dict(torch.load("models/resnet18_distilled.pth"))
+model_name ="minires"
+# # model  = model.to(device)
 print(model)
 util.replace_layers(model)
 print(model)
@@ -58,7 +63,8 @@ initial_optimizer_state_dict = optimizer.state_dict()
 # loading dataset
 faces, emotions = load_fer2013()
 # faces = preprocess_input(faces)
-xtrain, xtest, ytrain, ytest = train_test_split(faces, emotions, test_size=0.2, shuffle=True)
+# xtrain, xtest, ytrain, ytest = train_test_split(faces, emotions, test_size=0.2, shuffle=True)
+xtrain, xtest, ytrain, ytest = train_test_split(faces, emotions, test_size=0.2,random_state=42)
 train_data = TensorDataset(xtrain, ytrain)
 test_data = TensorDataset(xtest, ytest)
 
@@ -66,8 +72,8 @@ train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_w
 test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4)
 
 
-def train():
-    for epoch in range(num_epochs):
+def train(epochs):
+    for epoch in range(epochs):
         model.train()
         for batch_idx, (data, target) in enumerate(train_loader):
             # print(data.shape)
@@ -118,33 +124,40 @@ def test():
     return acc
 
 
-#Initial training
-print("---Initial training---")
-train()
-accuracy = test()
-torch.save(model,f"saves/initial_miniModel.ptmodel")
-print("---Before pruning---")
-util.print_nonzeros(model)
+# #Initial training
+# print("---Initial training---")
+# train(100)
+# accuracy = test()
+# torch.save(model,f"saves/initial_{model_name}.ptmodel")
+# print("---Before pruning---")
+# util.print_nonzeros(model)
 
-#Pruning
-util.prune_by_std(model,1)
-accuracy = test()
-print("---After pruning---")
-util.print_nonzeros(model)
+initial_accuracy = 0
 
-#Retrain
-print("---Retraining---")
+
 util.froze_layers(model)
-optimizer.load_state_dict(initial_optimizer_state_dict) # Reset the optimizer
-train()
-torch.save(model,f"saves/miniModel_after_retraining.ptmodel")
-accuracy = test()
+#iterative pruning
+for i in range(10):
+    #Pruning
+    util.prune_by_std(model,1/(i+1))
+    test()
+    print("---After pruning---")
+    util.print_nonzeros(model)
+    optimizer.load_state_dict(initial_optimizer_state_dict) # Reset the optimizer
+    print("start retraining")
+    train(20)
+    torch.save(model,f"saves/{model_name}_after_retraining{i}.ptmodel")
+    accuracy = test()
+    if accuracy < initial_accuracy-5:
+        break
+    else:
+        initial_accuracy = max(accuracy,initial_accuracy)
 
 print("---After retraining---")
 util.print_nonzeros(model)
 
 util.replace_layers_sparse(model)
-torch.save(model,f"saves/deploy_miniModel.ptmodel")
+torch.save(model,f"saves/{model_name}.ptmodel")
 accuracy = test()
 
 
