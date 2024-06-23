@@ -7,7 +7,7 @@ train.py包括了模型的选取，数据集的增广已经训练过程
 
 运行``python train.py``即可训练，但需要把其中``model``类型修改刀指定模型
 
-process.py包括了数据集的提取与预处理
+process.py包括了数据集的提取与预处理，我们使用的fer2013数据集可以在以下链接下载：https://www.kaggle.com/c/3364/download-all
 
 distill.py是模型蒸馏部分代码，需要把``model_t``和``model_s``改为对应模型
 
