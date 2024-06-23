@@ -28,6 +28,6 @@ util.py包含了与剪枝相关的工具函数
 
 ### 系统部署
 
-video.py实现了人脸情绪识别的全流程，修改对应的``emotion_model_path``为指定的情绪识别模型，并运行``python video.py``，其中的人脸位置识别文件可在https://github.com/opencv/opencv/tree/master/data/haarcascades下载
+video.py实现了人脸情绪识别的全流程，修改对应的``emotion_model_path``为指定的情绪识别模型，并运行``python video.py``，其中的人脸位置识别文件可在https://github.com/opencv/opencv/tree/master/data/haarcascades 下载
 
 
