@@ -11,7 +11,6 @@ class SeparableConv2d(nn.Module):
     
     def forward(self,x):
         x = self.conv1(x)
-
         x = self.pointwise(x)
         return x
         
@@ -156,16 +155,43 @@ class BigXception(nn.Module):
         output = self.softmax(x)
 
         return output
+    
+class DeepXception(nn.Module):
+    def __init__(self, input_shape, num_classes):
+        super(DeepXception, self).__init__()
 
-def get_parameter_number(model):
-    total_num = sum(p.numel() for p in model.parameters())
-    trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return {'Total': total_num, 'Trainable': trainable_num}
+        self.conv1 = nn.Conv2d(input_shape[0], 8, kernel_size=(3, 3), stride=(1, 1), bias=False)
+        self.bn1 = nn.BatchNorm2d(8)
+        self.relu = nn.ReLU()
 
-if __name__=='main':
-    model = BigXception((1,48,48),7)
-    print(get_parameter_number(model)['Total'])
+        self.conv2 = nn.Conv2d(8, 8, kernel_size=(3, 3), stride=(1, 1), bias=False)
+        self.bn2 = nn.BatchNorm2d(8)
 
-    model = MiniXception((1,48,48),7)
-    print(get_parameter_number(model)['Total'])
+        self.blocks = nn.Sequential(
+            Block(8, 16, 2, 1),  # Changing the strides to 1 will increase the depth
+            Block(16, 32, 2, 1),  
+            Block(32, 64, 2, 1),
+            Block(64, 128, 2, 2),  
+            Block(128, 256, 2, 1),  # Additional Block
+            Block(256, 512, 2, 1),  # Additional Block
+        )
+        
+        self.last_conv = nn.Conv2d(512, num_classes, kernel_size=3, padding=1, bias=False)
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.softmax = nn.Softmax(dim=1)
 
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+        
+        x = self.blocks(x)
+
+        x = self.last_conv(x)
+        x = self.global_avg_pool(x).reshape(x.shape[0], -1)
+        output = self.softmax(x)
+
+        return output
