@@ -1,5 +1,17 @@
 # Emotion Recognition on Jetson Nano
 
+
+### 预训练与模型蒸馏
+
+train.py包括了模型的选取，数据集的增广已经训练过程
+
+运行``python train.py``即可训练，但需要把其中``model``类型修改刀指定模型
+
+process.py包括了数据集的提取与预处理
+
+distill.py是模型蒸馏部分代码，需要把``model_t``和``model_s``改为对应模型
+
+
 ### 剪枝部分
 
 ./net目录包含了剪枝和稀疏化处理时的自定义卷积层和线性层。
@@ -17,9 +29,5 @@ util.py包含了与剪枝相关的工具函数
 ### 系统部署
 
 video.py实现了人脸情绪识别的全流程，修改对应的emotion_model_path为指定的情绪识别模型，并运行video.py
-
-### 预训练与模型蒸馏
-
-
 
 
